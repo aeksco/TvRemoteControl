@@ -27,6 +27,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         monitor.start()
+        // Development convenience: `open TvRemoteControl.app --args --open-bindings`.
+        if CommandLine.arguments.contains("--open-bindings") {
+            BindingsWindowController.shared.show(monitor: monitor)
+        }
     }
 
     /// Menu-bar app: closing the bindings window must not quit.

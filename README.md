@@ -27,7 +27,8 @@ TvRemoteControl/                 SwiftUI menu-bar app (Xcode project, target "Tv
   Bindings/Actions.swift         Action protocol; Keystroke (CGEvent), MediaKey (NX event), RunShortcut (shortcuts CLI), LaunchApp (NSWorkspace)
   Bindings/HoldController.swift  key-down / auto-repeat / key-up for "hold until release"
   Bindings/Pickers.swift         shortcuts catalog (`shortcuts list`) and app chooser
-  UI/BindingsWindow.swift        bindings editor window, per-cell pull-down, key recorder
+  UI/BindingsWindow.swift        Remote Bindings window: toolbar, gesture cards, Assign menu, hold card, recorder
+  UI/RemoteFigureView.swift      the drawn clickpad remote used as the button selector
   HID/HIDRemoteMonitor.swift     IOHIDManager wrapper — match/removal callbacks are the connection state; decodes + seizes
   HID/GestureDriver.swift        runs a GestureRecognizer against the monotonic clock with a deadline timer
   HID/RemoteGeneration.swift     the classifier (known product IDs + vendor IDs live here) and SF Symbol names
@@ -121,9 +122,15 @@ the volume HUD no longer appears; turn it off and check it comes back without re
 
 ## Phase 3 — bindings
 
-Menu → **Bindings…** opens the editor: one row per button, one cell per gesture (press / long press /
-double press). Each cell is a pull-down: *Record Keystroke…*, *Media Key ▸* (volume, mute, play/pause,
-next/previous, brightness), *Remove*. Bindings are per remote, keyed by serial, and survive disconnects.
+Menu → **Bindings…** (⌘B) opens the *Remote Bindings* window, built from the Claude Design mockup
+(`Remote Bindings.dc.html`): a drawn Siri Remote on the left is the button selector — click a button, or
+press it on the physical remote — and the right pane shows that button's three gestures (Press / Long
+press / Double press) as cards. Each card shows the assigned action as a keycap with its kind, an ×
+to clear, and an **Assign ▾** menu: *Record Keystroke…*, *Media Key ▸*, *Run Shortcut ▸*, *Open App ▸*,
+*Remove Binding*. Below the cards a *Hold until release* switch applies to the long-press binding. The
+toolbar carries the remote picker and an "N of 13 buttons bound" counter. Bindings are per remote, keyed
+by serial, and survive disconnects. `open TvRemoteControl.app --args --open-bindings` opens the window at
+launch (handy during development).
 
 - **Keystroke** posts a key-down/up pair via `CGEvent` to the HID event tap with the recorded modifier
   flags (and the fn flag for arrows/F-keys, like real hardware).
