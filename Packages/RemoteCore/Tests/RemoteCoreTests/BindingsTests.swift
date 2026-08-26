@@ -95,3 +95,38 @@ final class BindingsCompatibilityTests: XCTestCase {
         XCTAssertEqual(set[.volumeUp, .press]?.action, .mediaKey(key: .volumeUp))
     }
 }
+
+final class ActionSpecTests: XCTestCase {
+    func testShortcutAndAppActionsRoundTrip() throws {
+        var set = BindingSet()
+        set[.tv, .press] = GestureBinding(action: .runShortcut(name: "Start Pomodoro"))
+        set[.siri, .doublePress] = GestureBinding(action: .launchApp(bundleID: "com.apple.Safari", name: "Safari"))
+        let data = try JSONEncoder().encode(set)
+        let decoded = try JSONDecoder().decode(BindingSet.self, from: data)
+        XCTAssertEqual(decoded, set)
+        XCTAssertEqual(decoded[.tv, .press]?.action.displayString, "Shortcut: Start Pomodoro")
+        XCTAssertEqual(decoded[.siri, .doublePress]?.action.displayString, "Open Safari")
+        XCTAssertEqual(decoded[.siri, .doublePress]?.action.kindName, "App")
+    }
+
+    func testAccessibilityIsOnlyNeededForSyntheticInput() {
+        XCTAssertTrue(ActionSpec.keystroke(combo: KeyCombo(keyCode: 0, keyName: "A")).requiresAccessibility)
+        XCTAssertTrue(ActionSpec.mediaKey(key: .mute).requiresAccessibility)
+        XCTAssertFalse(ActionSpec.runShortcut(name: "x").requiresAccessibility)
+        XCTAssertFalse(ActionSpec.launchApp(bundleID: "a.b", name: "B").requiresAccessibility)
+
+        var set = BindingSet()
+        XCTAssertFalse(set.requiresAccessibility)
+        set[.tv, .press] = GestureBinding(action: .launchApp(bundleID: "a.b", name: "B"))
+        XCTAssertFalse(set.requiresAccessibility)
+        set[.back, .press] = GestureBinding(action: .keystroke(combo: KeyCombo(keyCode: 53, keyName: "Esc")))
+        XCTAssertTrue(set.requiresAccessibility)
+    }
+
+    func testOnlyInputActionsAreHoldable() {
+        XCTAssertTrue(ActionSpec.keystroke(combo: KeyCombo(keyCode: 0, keyName: "A")).isHoldable)
+        XCTAssertTrue(ActionSpec.mediaKey(key: .volumeUp).isHoldable)
+        XCTAssertFalse(ActionSpec.runShortcut(name: "x").isHoldable)
+        XCTAssertFalse(ActionSpec.launchApp(bundleID: "a.b", name: "B").isHoldable)
+    }
+}

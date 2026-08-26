@@ -114,11 +114,17 @@ public enum MediaKey: String, Codable, CaseIterable, Sendable {
 public enum ActionSpec: Codable, Hashable, Sendable {
     case keystroke(combo: KeyCombo)
     case mediaKey(key: MediaKey)
+    /// Run a Shortcuts.app shortcut by name.
+    case runShortcut(name: String)
+    /// Launch, or activate if already running, the app with this bundle identifier. `name` is only for display.
+    case launchApp(bundleID: String, name: String)
 
     public var displayString: String {
         switch self {
         case .keystroke(let combo): combo.displayString
         case .mediaKey(let key): key.displayName
+        case .runShortcut(let name): "Shortcut: \(name)"
+        case .launchApp(_, let name): "Open \(name)"
         }
     }
 
@@ -126,6 +132,24 @@ public enum ActionSpec: Codable, Hashable, Sendable {
         switch self {
         case .keystroke: "Keystroke"
         case .mediaKey: "Media key"
+        case .runShortcut: "Shortcut"
+        case .launchApp: "App"
+        }
+    }
+
+    /// Posting synthetic input needs the Accessibility grant; launching things does not.
+    public var requiresAccessibility: Bool {
+        switch self {
+        case .keystroke, .mediaKey: true
+        case .runShortcut, .launchApp: false
+        }
+    }
+
+    /// Only down/up-shaped actions can be held for the length of a long press.
+    public var isHoldable: Bool {
+        switch self {
+        case .keystroke, .mediaKey: true
+        case .runShortcut, .launchApp: false
         }
     }
 }
@@ -175,6 +199,11 @@ public struct BindingSet: Equatable, Sendable {
     /// (`GestureConfig.deferredPressButtons`) so it does not fire on the way to a double press.
     public var buttonsWithDoublePress: Set<RemoteButton> {
         Set(entries.keys.filter { $0.gesture == .doublePress }.map(\.button))
+    }
+
+    /// True when at least one binding posts synthetic input.
+    public var requiresAccessibility: Bool {
+        entries.values.contains { $0.action.requiresAccessibility }
     }
 
     /// Starting point for a new remote: each media button replays what macOS would have done natively,

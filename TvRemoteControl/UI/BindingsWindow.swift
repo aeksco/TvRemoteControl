@@ -32,6 +32,7 @@ struct BindingsEditorView: View {
 
     @State private var selectedID: String?
     @State private var recording: BindingKey?
+    @State private var shortcuts = ShortcutsCatalog()
 
     private var remote: RemoteDevice? {
         monitor.remotes.first { $0.id == selectedID } ?? monitor.remotes.first
@@ -74,6 +75,7 @@ struct BindingsEditorView: View {
                 selectedID = initialRemoteID ?? monitor.connectedRemotes.first?.id ?? monitor.remotes.first?.id
             }
             monitor.refreshPermission()
+            shortcuts.refresh()
         }
         .onChange(of: selectedID) { recording = nil }
     }
@@ -86,7 +88,7 @@ struct BindingsEditorView: View {
 
     private var footerHint: String {
         recording == nil
-            ? "Record Keystroke… then press the keys — any combination works, Esc included. Long-press cells can Hold until release: the key stays down (auto-repeating) until you let go."
+            ? "Each cell can send a keystroke or media key, run a Shortcut, or open an app. Long-press keystrokes can Hold until release (auto-repeating until you let go)."
             : "Recording — press the key combination now, or click ✕ to cancel."
     }
 
@@ -127,6 +129,7 @@ struct BindingsEditorView: View {
                         BindingCell(
                             binding: remote.bindings[button, gesture],
                             gesture: gesture,
+                            shortcuts: shortcuts,
                             isRecording: recording == key,
                             onRecord: { recording = key },
                             onCancel: { recording = nil },
@@ -158,6 +161,7 @@ struct BindingsEditorView: View {
 struct BindingCell: View {
     let binding: GestureBinding?
     let gesture: ButtonGesture
+    var shortcuts: ShortcutsCatalog
     let isRecording: Bool
     let onRecord: () -> Void
     let onCancel: () -> Void
@@ -188,9 +192,11 @@ struct BindingCell: View {
                             Button(key.displayName) { onSet(GestureBinding(action: .mediaKey(key: key), holdUntilRelease: keepsHold)) }
                         }
                     }
-                    if binding != nil {
+                    shortcutsMenu
+                    appsMenu
+                    if let binding {
                         Divider()
-                        if gesture == .longPress {
+                        if gesture == .longPress, binding.action.isHoldable {
                             Toggle("Hold until release", isOn: holdToggle)
                         }
                         Button("Remove", role: .destructive) { onSet(nil) }
@@ -201,6 +207,43 @@ struct BindingCell: View {
             }
         }
         .frame(width: 150)
+    }
+
+    private var shortcutsMenu: some View {
+        Menu("Run Shortcut") {
+            if shortcuts.isLoading, shortcuts.names.isEmpty {
+                Text("Loading…")
+            } else if let error = shortcuts.errorMessage {
+                Text(error)
+            } else if shortcuts.names.isEmpty {
+                Text("No shortcuts found")
+            } else {
+                ForEach(shortcuts.names, id: \.self) { name in
+                    Button(name) { onSet(GestureBinding(action: .runShortcut(name: name))) }
+                }
+            }
+            Divider()
+            Button("Refresh List") { shortcuts.refresh() }
+        }
+    }
+
+    private var appsMenu: some View {
+        Menu("Open App") {
+            let running = AppChoice.runningApps()
+            if !running.isEmpty {
+                Section("Running") {
+                    ForEach(running) { app in
+                        Button(app.name) { onSet(GestureBinding(action: .launchApp(bundleID: app.bundleID, name: app.name))) }
+                    }
+                }
+            }
+            Button("Choose Application…") {
+                AppChoice.choose { app in
+                    guard let app else { return }
+                    onSet(GestureBinding(action: .launchApp(bundleID: app.bundleID, name: app.name)))
+                }
+            }
+        }
     }
 
     private var cellLabel: some View {

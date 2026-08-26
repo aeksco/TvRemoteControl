@@ -31,8 +31,8 @@ final class HIDRemoteMonitor {
 
     var connectedRemotes: [RemoteDevice] { remotes.filter(\.isConnected) }
     var hasConnectedRemote: Bool { remotes.contains(where: \.isConnected) }
-    /// True when something is bound but we cannot post events yet.
-    var needsAccessibility: Bool { !accessibilityTrusted && remotes.contains { !$0.bindings.isEmpty } }
+    /// True when a binding posts synthetic input but we cannot post events yet.
+    var needsAccessibility: Bool { !accessibilityTrusted && remotes.contains { $0.bindings.requiresAccessibility } }
 
     @ObservationIgnored private var manager: IOHIDManager?
     @ObservationIgnored private var handles: [DeviceKey: DeviceHandle] = [:]
@@ -293,12 +293,17 @@ final class HIDRemoteMonitor {
                 remotes[index].lastAction = ActionFeedback(button: event.button, gesture: event.gesture, summary: "\(spec.displayString) — handled by macOS (not seized)")
                 continue
             }
+            let failureHandler: ActionFailureHandler = { [weak self] message in
+                guard let self, let index = self.remotes.firstIndex(where: { $0.id == remoteID }) else { return }
+                self.remotes[index].lastAction = ActionFeedback(button: event.button, gesture: event.gesture, summary: spec.displayString, error: message)
+                self.logger.error("Action \(spec.displayString, privacy: .public) failed later: \(message, privacy: .public)")
+            }
             do {
                 if isHold, let holdable = spec.makeAction() as? any HoldableAction {
                     try holds.begin(key: holdKey, action: holdable)
                     remotes[index].lastAction = ActionFeedback(button: event.button, gesture: event.gesture, summary: "holding \(spec.displayString)")
                 } else {
-                    try spec.makeAction().perform()
+                    try spec.makeAction(failureHandler: failureHandler).perform()
                     remotes[index].lastAction = ActionFeedback(button: event.button, gesture: event.gesture, summary: spec.displayString)
                 }
                 logger.info("Performed \(spec.displayString, privacy: .public) for \(event.button.displayName, privacy: .public) \(event.gesture.rawValue, privacy: .public)\(isHold ? " (hold)" : "", privacy: .public)")

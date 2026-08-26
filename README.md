@@ -3,15 +3,16 @@
 A macOS menu-bar utility that pairs with Apple TV Siri Remotes over Bluetooth, shows their connection
 status, and (eventually) binds each button to a custom action.
 
-**Status: Phases 0–3 built. Buttons decode into press / long-press / double-press, and each gesture can be bound to a keystroke or media key per remote.**
+**Status: Phases 0–4 built (multi-remote copy pending). Each gesture can send a keystroke or media key, hold a key for the length of a long press, run a Shortcut, or open an app.**
 
 | Phase | What | State |
 | --- | --- | --- |
 | 0 | `hidspike` CLI: dump product IDs, button maps, seize-vs-tap answer | Tool ready — **needs you + a remote** |
 | 1 | Menu-bar app: remotes appear/disappear live, permission onboarding | Verified on hardware |
 | 2 | Report decoding, press / long-press / double-press state machine, unit tests | Verified on hardware (29 tests green) |
-| 3 | Bindings editor, keystroke + media-key actions, persistence | Built — **needs you to bind a key and see it land in a real app** |
-| 4–6 | Shortcut + app-launch actions, multi-remote copy, launch at login, signing | Not started |
+| 3 | Bindings editor, keystroke + media-key actions, hold-until-release, persistence | Verified on hardware |
+| 4 | Run Shortcut + Open App actions | Built — **needs a quick check**; "copy bindings from…" deferred |
+| 5–6 | Launch at login, reconnect resilience, signing + notarization | Not started |
 
 ## Layout
 
@@ -23,7 +24,9 @@ Packages/RemoteCore/             Pure decoding + gesture state machine, no IOKit
   Tests/RemoteCoreTests/                      replays the captured hex and timestamps
 TvRemoteControl/                 SwiftUI menu-bar app (Xcode project, target "TvRemoteControl")
   AppSettings.swift              enabled / exclusive mode / thresholds (UserDefaults)
-  Bindings/Actions.swift         Action protocol; KeystrokeAction (CGEvent) and MediaKeyAction (NX system-defined event)
+  Bindings/Actions.swift         Action protocol; Keystroke (CGEvent), MediaKey (NX event), RunShortcut (shortcuts CLI), LaunchApp (NSWorkspace)
+  Bindings/HoldController.swift  key-down / auto-repeat / key-up for "hold until release"
+  Bindings/Pickers.swift         shortcuts catalog (`shortcuts list`) and app chooser
   UI/BindingsWindow.swift        bindings editor window, per-cell pull-down, key recorder
   HID/HIDRemoteMonitor.swift     IOHIDManager wrapper — match/removal callbacks are the connection state; decodes + seizes
   HID/GestureDriver.swift        runs a GestureRecognizer against the monotonic clock with a deadline timer
@@ -135,8 +138,15 @@ next/previous, brightness), *Remove*. Bindings are per remote, keyed by serial, 
   for media keys too — new remotes get Volume Up/Down long-press-hold as a volume ramp. Held keys are
   released on disconnect, disable, rebinding and quit so nothing is left stuck down.
 
-**Accessibility** is required to post events; the menu and the editor show a banner with the prompt and
-the Settings deep link until it is granted. Bindings are saved regardless.
+- **Run Shortcut** runs a Shortcuts.app shortcut by name through `/usr/bin/shortcuts run`, in the
+  background (the `shortcuts://` URL scheme would bring the Shortcuts app forward). The pull-down lists
+  your shortcuts from `shortcuts list`; a failing shortcut reports its error on the menu row.
+- **Open App** launches the app by bundle identifier via `NSWorkspace`, or brings it to the front if it is
+  already running. Pick from the currently running apps or choose any `.app`.
+
+**Accessibility** is required to post keystrokes and media keys; the menu and the editor show a banner
+with the prompt and the Settings deep link while such a binding exists and the grant is missing.
+Shortcut and app bindings need no permission. Bindings are saved regardless.
 
 **Why not KeyboardShortcuts.** The spec asked for sindresorhus/KeyboardShortcuts as the recorder. Reading
 its source: recording calls `registerIfNeeded` → `RegisterEventHotKey`, i.e. it claims the combo as a

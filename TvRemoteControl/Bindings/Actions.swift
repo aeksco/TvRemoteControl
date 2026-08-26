@@ -6,14 +6,22 @@ import RemoteCore
 enum ActionError: LocalizedError {
     case accessibilityNotGranted
     case eventCreationFailed
+    case appNotFound(String)
+    case shortcutFailed(String)
 
     var errorDescription: String? {
         switch self {
         case .accessibilityNotGranted: "Accessibility permission is required to send keystrokes"
         case .eventCreationFailed: "Couldn't create the synthetic event"
+        case .appNotFound(let name): "\(name) is not installed"
+        case .shortcutFailed(let message): message
         }
     }
 }
+
+/// Reports a failure that only surfaces after `perform()` returned (a shortcut that errors, an app that
+/// refuses to launch). Always called on the main actor.
+typealias ActionFailureHandler = (String) -> Void
 
 /// Something a gesture can do. Each `ActionSpec` case maps to one implementation.
 protocol Action {
@@ -37,10 +45,12 @@ extension HoldableAction {
 }
 
 extension ActionSpec {
-    func makeAction() -> any Action {
+    func makeAction(failureHandler: ActionFailureHandler? = nil) -> any Action {
         switch self {
         case .keystroke(let combo): KeystrokeAction(combo: combo)
         case .mediaKey(let key): MediaKeyAction(key: key)
+        case .runShortcut(let name): RunShortcutAction(name: name, failureHandler: failureHandler)
+        case .launchApp(let bundleID, let name): LaunchAppAction(bundleID: bundleID, name: name, failureHandler: failureHandler)
         }
     }
 
@@ -48,6 +58,60 @@ extension ActionSpec {
         switch self {
         case .keystroke: "keyboard"
         case .mediaKey(let key): key.symbolName
+        case .runShortcut: "wand.and.stars"
+        case .launchApp: "arrow.up.forward.app"
+        }
+    }
+}
+
+/// Runs a Shortcuts.app shortcut through the `shortcuts` CLI. Unlike the `shortcuts://` URL scheme this
+/// stays in the background. The process is not awaited; a non-zero exit is reported through the handler.
+struct RunShortcutAction: Action {
+    let name: String
+    let failureHandler: ActionFailureHandler?
+
+    var displayString: String { "Shortcut: \(name)" }
+
+    func perform() throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/shortcuts")
+        process.arguments = ["run", name]
+        let stderr = Pipe()
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = stderr
+        let handler = failureHandler
+        let shortcutName = name
+        process.terminationHandler = { process in
+            guard process.terminationStatus != 0 else { return }
+            let output = String(decoding: stderr.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let message = output.isEmpty ? "shortcuts exited with status \(process.terminationStatus)" : output
+            DispatchQueue.main.async { handler?("“\(shortcutName)”: \(message)") }
+        }
+        try process.run()
+    }
+}
+
+/// Launches the app, or brings it to the front when it is already running.
+struct LaunchAppAction: Action {
+    let bundleID: String
+    let name: String
+    let failureHandler: ActionFailureHandler?
+
+    var displayString: String { "Open \(name)" }
+
+    func perform() throws {
+        guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) else {
+            throw ActionError.appNotFound(name)
+        }
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.activates = true
+        let handler = failureHandler
+        let appName = name
+        NSWorkspace.shared.openApplication(at: url, configuration: configuration) { _, error in
+            guard let error else { return }
+            DispatchQueue.main.async { handler?("\(appName): \(error.localizedDescription)") }
         }
     }
 }
