@@ -185,10 +185,46 @@ rebuilds; `make reset-tcc` clears them deliberately.
 App Sandbox is off and Hardened Runtime is on — HID access and synthetic events don't survive the sandbox,
 so this will ship Developer-ID-signed and notarized, never through the Mac App Store.
 
+## Microphone as an input device — explored, not feasible
+
+We investigated whether the remote's microphone (live only while the Siri button is held) could be
+captured and re-exposed as a virtual macOS input device — a "use the Siri Remote as a mic" feature.
+**Conclusion: not feasible on macOS with the 3rd-gen remote.** The exploration is recorded here so nobody
+retraces it.
+
+**What we tried, on real hardware (gen 3, A2854, PID `0x0315`, macOS 26):**
+
+- **IOKit HID** — a listener opened all seven of the remote's HID collections (including the
+  `0x0C/0x04` *Microphone* collection) and decoded any Opus with libopus. Holding Siri and speaking
+  produced **only the button reports** (`fb 20 00` Siri-down / `fb 00 00` up) — **zero** input reports on
+  the microphone or any other collection.
+- **CoreBluetooth** — a second probe went in via GATT instead. It sees **zero services**: macOS's
+  `bluetoothd` owns the bonded connection and does not expose the HID service (`0x1812`) or the Apple
+  vendor services to normal apps.
+
+**Why it's blocked.** We reconstructed the remote's full GATT table from `bluetoothd`'s own unified-log
+`statedump` entries (no sniffer required). The decisive finding: the Apple vendor service
+`8341F2B4-C013-4F04-8197-C4CDB42E26DC` — which on the **1st-gen** remote (the one the prior-art projects
+decoded) carried the *voice* characteristics — is, on the **3rd-gen** remote, an **MFi attestation
+service**. It holds an Apple Accessories ECDSA certificate plus a notify "challenge" characteristic
+(`30E69638-…`). The audio almost certainly rides behind a cryptographic handshake the **Apple TV performs
+and macOS never does**, which is why holding Siri on a Mac yields silence. The `0xFF00/0x0B` sub-device
+that BUTTONS.md speculated might be Siri audio is unrelated; the microphone-labelled `0x0C/0x04` collection
+exists but no audio flows to it passively.
+
+**What would remain (and why we stopped):** the only untried macOS-only step is **PacketLogger** (from
+*Additional Tools for Xcode*) to confirm whether the Opus stream even reaches the Mac over the air; if it
+never does, the next step is an external BLE sniffer (nRF52840) to capture the Apple TV ↔ remote handshake
+and attempt to replay it. Because that handshake is genuine MFi challenge/response, replaying it is likely
+infeasible without Apple's keys — so this direction was closed. The 1st-gen remote, whose audio is a plain
+HID characteristic, remains capturable (see [Jack-R1/SiriRemoteVoiceControl](https://github.com/Jack-R1/SiriRemoteVoiceControl)),
+but we don't have that hardware and it doesn't generalize to the current remote.
+
 ## Known limitations
 
 - Buttons only. Trackpad/clickpad multitouch and the microphone are out of scope (private APIs / protected
-  HID service respectively). The remote cannot wake the Mac.
+  HID service respectively; the microphone is additionally gated behind an MFi handshake — see
+  *Microphone as an input device* above). The remote cannot wake the Mac.
 - Gen 1 remotes need macOS 10.13–14 or 15.4+; gen 2 needs 11.3.1+; gen 3 needs 13+. This app targets 14+.
 - macOS natively maps some remote buttons to system volume / play-pause. Whether we can suppress that
   (seize the device vs. swallow the event vs. leave those buttons unbindable) is what the `--seize` spike
@@ -200,6 +236,7 @@ so this will ship Developer-ID-signed and notarized, never through the Mac App S
 ## References
 
 - SiriRemote-Linux — GATT layout, gen-1 button encoding: https://github.com/Yanndroid/SiriRemote-Linux
+- SiriRemoteVoiceControl — gen-1 microphone capture via PacketLogger + Opus: https://github.com/Jack-R1/SiriRemoteVoiceControl
 - Remote Buddy compatibility matrix: https://www.iospirit.com/products/remotebuddy/hardware/apple-siri-remote/
 - SiriMote — minimal buttons-to-media-keys reference: https://eternalstorms.at/sirimote/
 - KeyboardShortcuts (recorder UI, Phase 3): https://github.com/sindresorhus/KeyboardShortcuts
