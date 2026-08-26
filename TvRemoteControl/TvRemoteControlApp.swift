@@ -1,17 +1,46 @@
-//
-//  TvRemoteControlApp.swift
-//  TvRemoteControl
-//
-//  Created by Alexander Schwartzberg on 8/25/26.
-//
-
+import AppKit
 import SwiftUI
 
 @main
 struct TvRemoteControlApp: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
+
     var body: some Scene {
-        WindowGroup {
-            ContentView()
+        MenuBarExtra {
+            MenuBarView(monitor: appDelegate.monitor)
+        } label: {
+            MenuBarLabel(monitor: appDelegate.monitor)
         }
+        .menuBarExtraStyle(.window)
+    }
+}
+
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    let settings: AppSettings
+    let monitor: HIDRemoteMonitor
+
+    override init() {
+        settings = AppSettings()
+        monitor = HIDRemoteMonitor(settings: settings)
+        super.init()
+    }
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        monitor.start()
+    }
+
+    /// Menu-bar app: closing the bindings window must not quit.
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        false
+    }
+
+    /// Permissions can change underneath us in System Settings; re-check every time we come to the front.
+    func applicationDidBecomeActive(_ notification: Notification) {
+        monitor.refreshPermission()
+    }
+
+    /// Release seized devices and any held keys before the process goes away.
+    func applicationWillTerminate(_ notification: Notification) {
+        monitor.stop()
     }
 }
