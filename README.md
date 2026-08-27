@@ -38,6 +38,7 @@ TvRemoteControl/                 SwiftUI menu-bar app (Xcode project, target "Tv
   Persistence/RemoteStore.swift  ~/Library/Application Support/aeksco.TvRemoteControl/remotes.json (schema v2, bindings inline)
   UI/                            MenuBarExtra (.window style), device rows, permission banner
 Tools/hidspike/                  Phase 0 throwaway CLI (Swift package)
+Tools/appicon/                   redraws Assets.xcassets/AppIcon.appiconset in SwiftUI — `make icon`
 BUTTONS.md                       observed product IDs + button maps — fill in from the spike
 ```
 
@@ -184,6 +185,23 @@ rebuilds; `make reset-tcc` clears them deliberately.
 
 App Sandbox is off and Hardened Runtime is on — HID access and synthetic events don't survive the sandbox,
 so this will ship Developer-ID-signed and notarized, never through the Mac App Store.
+
+### Building a release
+
+```sh
+make release       # Release config → dist/TvRemoteControl.app, signature verified
+make release-zip   # the above, plus dist/TvRemoteControl.zip
+```
+
+There is no Developer ID Application certificate in the keychain yet, so `make release` signs with the
+Apple Development identity: the app runs on this Mac, but another Mac will quarantine it until Phase 6
+adds Developer ID signing and notarization. `make clean` removes `dist/` along with the derived data.
+
+### App icon
+
+`make icon` re-renders every size in `Assets.xcassets/AppIcon.appiconset` from
+`Tools/appicon/GenerateAppIcon.swift` — the clickpad remote from `UI/RemoteFigureView`, with a ⌘ on the
+clickpad, on a dark plate. Edit the Swift, run `make icon`, rebuild; don't hand-edit the PNGs.
 
 ## Microphone as an input device — explored, not feasible
 
