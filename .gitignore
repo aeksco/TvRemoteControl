@@ -15,3 +15,6 @@ Package.resolved
 
 # spike captures
 spike*.log
+
+# release output
+dist/
