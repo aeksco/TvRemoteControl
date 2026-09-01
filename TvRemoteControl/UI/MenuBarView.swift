@@ -71,11 +71,9 @@ struct MenuBarView: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 8) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Siri Remote Hotkeys").font(.headline)
-                Text(statusLine).font(.caption).foregroundStyle(.secondary)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            Text("Siri Remote Hotkeys")
+                .font(.headline)
+                .frame(maxWidth: .infinity, alignment: .leading)
 
             Picker("Section", selection: $tab) {
                 ForEach(PanelTab.allCases) { tab in
@@ -88,15 +86,6 @@ struct MenuBarView: View {
         .padding(.horizontal, 12)
         .padding(.top, 10)
         .padding(.bottom, 8)
-    }
-
-    private var statusLine: String {
-        let connected = monitor.connectedRemotes.count
-        switch (connected, monitor.remotes.count) {
-        case (0, 0): return "No remotes seen yet"
-        case (0, let known): return "\(known) known remote\(known == 1 ? "" : "s"), none connected"
-        case (let c, _): return "\(c) remote\(c == 1 ? "" : "s") connected"
-        }
     }
 
     private var footer: some View {

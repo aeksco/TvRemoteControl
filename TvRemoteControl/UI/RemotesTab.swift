@@ -63,6 +63,7 @@ struct RemotesTab: View {
     private func strip(for remote: RemoteDevice) -> some View {
         HStack(spacing: 8) {
             RemotePickerPill(remotes: monitor.remotes, selection: $selectedRemoteID, remote: remote)
+            RemoteCountLabel(monitor: monitor)
             Spacer(minLength: 4)
             if remote.isSeized {
                 Tag(text: "Exclusive", color: .orange)
@@ -244,6 +245,27 @@ struct RemotePickerPill: View {
 
     private func label(for remote: RemoteDevice) -> String {
         "\(remote.displayName) · \(remote.serialNumber ?? remote.id) \(remote.isConnected ? "●" : "○")"
+    }
+}
+
+/// "1 remote connected" — the panel's status line, in the strip beside the picker so both tabs carry it.
+struct RemoteCountLabel: View {
+    var monitor: HIDRemoteMonitor
+
+    var body: some View {
+        Text(text)
+            .font(.system(size: 11))
+            .foregroundStyle(PanelTheme.tertiary)
+            .lineLimit(1)
+    }
+
+    private var text: String {
+        let connected = monitor.connectedRemotes.count
+        switch (connected, monitor.remotes.count) {
+        case (0, 0): return "No remotes seen yet"
+        case (0, let known): return "\(known) known remote\(known == 1 ? "" : "s"), none connected"
+        case (let c, _): return "\(c) remote\(c == 1 ? "" : "s") connected"
+        }
     }
 }
 
