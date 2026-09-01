@@ -27,13 +27,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         monitor.start()
-        // Development convenience: `open TvRemoteControl.app --args --open-bindings`.
-        if CommandLine.arguments.contains("--open-bindings") {
-            BindingsWindowController.shared.show(monitor: monitor)
+        // Development convenience: `open TvRemoteControl.app --args --preview-panel`.
+        if CommandLine.arguments.contains("--preview-panel") {
+            PanelPreviewWindow.show(monitor: monitor)
         }
     }
 
-    /// Menu-bar app: closing the bindings window must not quit.
+    /// Menu-bar app: closing a window (the dev panel preview) must not quit.
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         false
     }
