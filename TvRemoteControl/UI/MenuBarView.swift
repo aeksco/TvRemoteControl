@@ -1,8 +1,33 @@
 import AppKit
+import RemoteCore
 import SwiftUI
 
+enum PanelTab: String, CaseIterable, Identifiable {
+    case remotes, bindings
+
+    var id: Self { self }
+
+    var title: String {
+        switch self {
+        case .remotes: "Remotes"
+        case .bindings: "Bindings"
+        }
+    }
+}
+
+/// The whole app lives in this panel. `.menuBarExtraStyle(.window)` hosts arbitrary SwiftUI — the only
+/// real constraint is width — so the bindings editor is a tab here rather than a separate window.
+/// Selection state lives at this level so switching tabs (or reopening the panel) keeps its place.
 struct MenuBarView: View {
     var monitor: HIDRemoteMonitor
+
+    @State private var tab: PanelTab = .remotes
+    @State private var selectedRemoteID: String?
+    @State private var selectedButton: RemoteButton = .select
+    @State private var recording: ButtonGesture?
+    @State private var shortcuts = ShortcutsCatalog()
+
+    static let width: CGFloat = 620
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -18,37 +43,51 @@ struct MenuBarView: View {
                 Divider()
             }
 
-            if monitor.remotes.isEmpty {
-                emptyState
-            } else {
-                remotesList
-            }
-
-            Divider()
-            SettingsSection(settings: monitor.settings, seizedDeviceCount: monitor.seizedDeviceCount)
-
-            if !monitor.ignoredDevices.isEmpty {
-                Divider()
-                ignoredSection
+            switch tab {
+            case .remotes:
+                RemotesTab(monitor: monitor, selectedRemoteID: $selectedRemoteID)
+            case .bindings:
+                BindingsTab(
+                    monitor: monitor,
+                    selectedRemoteID: $selectedRemoteID,
+                    selectedButton: $selectedButton,
+                    recording: $recording,
+                    shortcuts: shortcuts)
             }
 
             Divider()
             footer
         }
-        .frame(width: 380)
-        .onAppear { monitor.refreshPermission() }
+        .frame(width: Self.width)
+        .onAppear {
+            monitor.refreshPermission()
+            if selectedRemoteID == nil {
+                selectedRemoteID = monitor.connectedRemotes.first?.id ?? monitor.remotes.first?.id
+            }
+        }
+        // A half-finished recording must not survive leaving the tab.
+        .onChange(of: tab) { recording = nil }
     }
 
     private var header: some View {
-        HStack {
+        VStack(alignment: .leading, spacing: 8) {
             VStack(alignment: .leading, spacing: 2) {
                 Text("Siri Remote Hotkeys").font(.headline)
                 Text(statusLine).font(.caption).foregroundStyle(.secondary)
             }
-            Spacer()
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            Picker("Section", selection: $tab) {
+                ForEach(PanelTab.allCases) { tab in
+                    Text(tab.title).tag(tab)
+                }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
         }
         .padding(.horizontal, 12)
-        .padding(.vertical, 10)
+        .padding(.top, 10)
+        .padding(.bottom, 8)
     }
 
     private var statusLine: String {
@@ -60,70 +99,9 @@ struct MenuBarView: View {
         }
     }
 
-    private var remotesList: some View {
-        TimelineView(.periodic(from: .now, by: 1)) { context in
-            VStack(spacing: 2) {
-                ForEach(monitor.remotes) { remote in
-                    RemoteRow(remote: remote, now: context.date)
-                }
-            }
-            .padding(6)
-        }
-    }
-
-    private var emptyState: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Label("No Siri Remote found", systemImage: "appletvremote.gen4")
-                .font(.subheadline.weight(.medium))
-            Text("Pair the remote in System Settings → Bluetooth. It bonds to one host at a time, so unpair it from the Apple TV first. It may show up as a MAC address before its serial number appears.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-            Text("Pairing mode — 1st gen: hold Menu + Volume Up. 2nd/3rd gen: hold Back + Volume Up for ~5 s.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-            Button("Open Bluetooth Settings…") { openBluetoothSettings() }
-                .controlSize(.small)
-        }
-        .padding(12)
-    }
-
-    private var ignoredSection: some View {
-        DisclosureGroup {
-            VStack(alignment: .leading, spacing: 4) {
-                ForEach(monitor.ignoredDevices) { device in
-                    HStack(spacing: 6) {
-                        Text(device.info.product.isEmpty ? "(unnamed)" : device.info.product)
-                            .lineLimit(1)
-                        Spacer()
-                        Text("\(device.info.transport) · PID \(String(format: "0x%04X", device.info.productID)) · \(device.reason)")
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                    }
-                    .font(.caption2)
-                }
-                Text("If your remote is listed here instead of above, note its transport and PID — the classifier in RemoteGeneration.swift needs it.")
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.top, 2)
-            }
-            .padding(.top, 4)
-        } label: {
-            Text("Other Apple HID devices (\(monitor.ignoredDevices.count))")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-    }
-
     private var footer: some View {
         HStack {
-            Button("Bindings…") { BindingsWindowController.shared.show(monitor: monitor) }
-                .keyboardShortcut("b")
-            Button("Bluetooth Settings…") { openBluetoothSettings() }
+            Button("Bluetooth Settings…") { Self.openBluetoothSettings() }
             Spacer()
             Button("Quit") { NSApplication.shared.terminate(nil) }
                 .keyboardShortcut("q")
@@ -133,7 +111,7 @@ struct MenuBarView: View {
         .padding(.vertical, 8)
     }
 
-    private func openBluetoothSettings() {
+    static func openBluetoothSettings() {
         NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.BluetoothSettings")!)
     }
 }
