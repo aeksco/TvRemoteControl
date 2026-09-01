@@ -2,7 +2,8 @@ import RemoteCore
 import SwiftUI
 
 /// A drawn clickpad Siri Remote used as the button selector. Geometry follows the Claude Design mockup
-/// (190 × 560 canvas); the selected button gets an accent ring, buttons the profile lacks are dimmed.
+/// (190 × 644 canvas — the mockup's 560 plus the blank shell the real remote carries below the volume
+/// rocker); the selected button gets an accent ring, buttons the profile lacks are dimmed.
 /// `scale` shrinks the whole figure — hit targets included — for the menu-bar panel. `selected` draws the
 /// editor's accent ring; `highlighted` lights a key up, which is how the Remotes tab shows live presses.
 /// Without `onSelect` the figure is a display, not a control.
@@ -14,6 +15,9 @@ struct RemoteFigureView: View {
     var onSelect: ((RemoteButton) -> Void)?
 
     @State private var hovered: RemoteButton?
+
+    /// Key placement is fixed to this canvas; only the shell grows with it.
+    static let canvas = CGSize(width: 190, height: 644)
 
     private static let shell = LinearGradient(
         colors: [Color(hex: 0xE3E3E7), Color(hex: 0xB7B7BD), Color(hex: 0x9D9DA3)],
@@ -55,9 +59,9 @@ struct RemoteFigureView: View {
                 keyView(key)
             }
         }
-        .frame(width: 190, height: 560)
+        .frame(width: Self.canvas.width, height: Self.canvas.height)
         .scaleEffect(scale)
-        .frame(width: 190 * scale, height: 560 * scale)
+        .frame(width: Self.canvas.width * scale, height: Self.canvas.height * scale)
     }
 
     private func keyView(_ key: RemoteKey) -> some View {
@@ -130,10 +134,10 @@ struct RemoteFigureView: View {
             Circle()
                 .fill(hovered == key.button ? Color.black.opacity(0.045) : Color.clear)
                 .frame(width: key.size.width, height: key.size.height)
-                .overlay(Circle().fill(Color.black.opacity(0.26)).frame(width: 5, height: 5))
+                .overlay(Circle().fill(Color.black.opacity(0.26)).frame(width: 6, height: 6))
         case .rockerTop, .rockerBottom:
             Text(key.kind == .rockerTop ? "+" : "−")
-                .font(.system(size: 19))
+                .font(.system(size: 22))
                 .foregroundStyle(Self.glyph)
                 .frame(width: key.size.width, height: key.size.height)
         case .side:
@@ -171,22 +175,22 @@ struct RemoteFigureView: View {
     private func glyph(for button: RemoteButton) -> some View {
         switch button {
         case .power:
-            Image(systemName: "power").font(.system(size: 15, weight: .medium)).foregroundStyle(Self.glyph)
+            Image(systemName: "power").font(.system(size: 17, weight: .medium)).foregroundStyle(Self.glyph)
         case .back:
-            Image(systemName: "chevron.backward").font(.system(size: 18, weight: .medium)).foregroundStyle(Self.glyph)
+            Image(systemName: "chevron.backward").font(.system(size: 21, weight: .medium)).foregroundStyle(Self.glyph)
         case .tv:
-            RoundedRectangle(cornerRadius: 2.5).stroke(Self.glyph, lineWidth: 1.7).frame(width: 17, height: 13)
+            RoundedRectangle(cornerRadius: 3).stroke(Self.glyph, lineWidth: 2).frame(width: 20, height: 15)
         case .playPause:
-            Image(systemName: "playpause.fill").font(.system(size: 13)).foregroundStyle(Self.glyph)
+            Image(systemName: "playpause.fill").font(.system(size: 15)).foregroundStyle(Self.glyph)
         case .mute:
-            Image(systemName: "speaker.slash.fill").font(.system(size: 13)).foregroundStyle(Self.glyph)
+            Image(systemName: "speaker.slash.fill").font(.system(size: 15)).foregroundStyle(Self.glyph)
         default:
             EmptyView()
         }
     }
 }
 
-/// Placement of one key on the 190 × 560 canvas (centre-based).
+/// Placement of one key on the 190 × 644 canvas (centre-based); unchanged from the mockup's geometry.
 struct RemoteKey: Identifiable {
     enum Kind { case round, concave, dot, rockerTop, rockerBottom, side }
 
