@@ -90,6 +90,7 @@ struct BindingsTab: View {
     private func strip(for remote: RemoteDevice) -> some View {
         HStack(spacing: 8) {
             remotePicker(for: remote)
+            RemoteCountLabel(monitor: monitor)
             Spacer(minLength: 4)
             boundCount(for: remote)
         }
