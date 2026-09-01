@@ -3,10 +3,15 @@ import SwiftUI
 
 /// A drawn clickpad Siri Remote used as the button selector. Geometry follows the Claude Design mockup
 /// (190 × 560 canvas); the selected button gets an accent ring, buttons the profile lacks are dimmed.
+/// `scale` shrinks the whole figure — hit targets included — for the menu-bar panel. `selected` draws the
+/// editor's accent ring; `highlighted` lights a key up, which is how the Remotes tab shows live presses.
+/// Without `onSelect` the figure is a display, not a control.
 struct RemoteFigureView: View {
     let available: Set<RemoteButton>
-    let selected: RemoteButton
-    let onSelect: (RemoteButton) -> Void
+    var selected: RemoteButton?
+    var highlighted: Set<RemoteButton> = []
+    var scale: CGFloat = 1
+    var onSelect: ((RemoteButton) -> Void)?
 
     @State private var hovered: RemoteButton?
 
@@ -51,23 +56,60 @@ struct RemoteFigureView: View {
             }
         }
         .frame(width: 190, height: 560)
+        .scaleEffect(scale)
+        .frame(width: 190 * scale, height: 560 * scale)
     }
 
     private func keyView(_ key: RemoteKey) -> some View {
-        ZStack {
+        let isLit = highlighted.contains(key.button)
+        return ZStack {
             face(for: key)
                 .brightness(hovered == key.button ? 0.04 : 0)
+            glow(for: key)
+                .opacity(isLit ? 1 : 0)
             ring(for: key)
                 .opacity(selected == key.button ? 1 : 0)
         }
+        .animation(.easeOut(duration: 0.12), value: isLit)
         .frame(width: key.size.width + 20, height: key.size.height + 20)
         .contentShape(Rectangle())
-        .onTapGesture { onSelect(key.button) }
+        .onTapGesture { onSelect?(key.button) }
         .onHover { inside in
+            guard onSelect != nil else { return }
             if inside { hovered = key.button } else if hovered == key.button { hovered = nil }
         }
         .opacity(available.contains(key.button) ? 1 : 0.35)
         .position(key.center)
+    }
+
+    /// A pressed key: the face washed in the accent colour, plus a halo so it reads at panel scale.
+    @ViewBuilder
+    private func glow(for key: RemoteKey) -> some View {
+        let accent = Color.accentColor
+        let fill = accent.opacity(0.5)
+        let halo = accent.opacity(0.85)
+        switch key.kind {
+        case .round, .concave, .dot:
+            Circle()
+                .fill(fill)
+                .frame(width: key.size.width, height: key.size.height)
+                .shadow(color: halo, radius: 7)
+        case .rockerTop:
+            UnevenRoundedRectangle(topLeadingRadius: 26, bottomLeadingRadius: 4, bottomTrailingRadius: 4, topTrailingRadius: 26)
+                .fill(fill)
+                .frame(width: key.size.width, height: key.size.height - 2)
+                .shadow(color: halo, radius: 7)
+        case .rockerBottom:
+            UnevenRoundedRectangle(topLeadingRadius: 4, bottomLeadingRadius: 26, bottomTrailingRadius: 26, topTrailingRadius: 4)
+                .fill(fill)
+                .frame(width: key.size.width, height: key.size.height - 2)
+                .shadow(color: halo, radius: 7)
+        case .side:
+            RoundedRectangle(cornerRadius: 4)
+                .fill(fill)
+                .frame(width: key.size.width, height: key.size.height)
+                .shadow(color: halo, radius: 6)
+        }
     }
 
     @ViewBuilder
