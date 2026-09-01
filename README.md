@@ -27,8 +27,13 @@ TvRemoteControl/                 SwiftUI menu-bar app (Xcode project, target "Tv
   Bindings/Actions.swift         Action protocol; Keystroke (CGEvent), MediaKey (NX event), RunShortcut (shortcuts CLI), LaunchApp (NSWorkspace)
   Bindings/HoldController.swift  key-down / auto-repeat / key-up for "hold until release"
   Bindings/Pickers.swift         shortcuts catalog (`shortcuts list`) and app chooser
-  UI/BindingsWindow.swift        Remote Bindings window: toolbar, gesture cards, Assign menu, hold card, recorder
-  UI/RemoteFigureView.swift      the drawn clickpad remote used as the button selector
+  ActivityLog.swift              bounded in-memory history: gestures, actions, connections, raw reports
+  UI/MenuBarView.swift           the panel: header, Remotes / Bindings tabs, shared footer
+  UI/PanelTheme.swift            the mockup's palette, shared by both tabs
+  UI/RemotesTab.swift            live state: lit-up remote, last gesture, status + settings cards
+  UI/BindingsTab.swift           bindings editor: remote strip, gesture cards, Assign menu, hold row, recorder
+  UI/ActivityLogWindow.swift     the log window: filterable entries, raw reports, ignored devices
+  UI/RemoteFigureView.swift      the drawn clickpad remote — button selector, and live press indicator
   HID/HIDRemoteMonitor.swift     IOHIDManager wrapper — match/removal callbacks are the connection state; decodes + seizes
   HID/GestureDriver.swift        runs a GestureRecognizer against the monotonic clock with a deadline timer
   HID/RemoteGeneration.swift     the classifier (known product IDs + vendor IDs live here) and SF Symbol names
@@ -36,7 +41,7 @@ TvRemoteControl/                 SwiftUI menu-bar app (Xcode project, target "Tv
   HID/RemoteDevice.swift         UI model for one remote
   Permissions/                   Input Monitoring + Accessibility: check / request / deep link
   Persistence/RemoteStore.swift  ~/Library/Application Support/aeksco.TvRemoteControl/remotes.json (schema v2, bindings inline)
-  UI/                            MenuBarExtra (.window style), device rows, permission banner
+  UI/                            MenuBarExtra (.window style), permission banner, the drawn remote
 Tools/hidspike/                  Phase 0 throwaway CLI (Swift package)
 Tools/appicon/                   redraws Assets.xcassets/AppIcon.appiconset in SwiftUI — `make icon`
 BUTTONS.md                       observed product IDs + button maps — fill in from the spike
@@ -110,28 +115,40 @@ the previous mask, and runs a per-button state machine:
   binding the single press is deferred until the window closes so it does not fire twice; for the rest
   the single press fires immediately and a quick second tap adds a double press.
 
-Thresholds live under *Settings* in the menu. Everything in the package is pure and clock-agnostic;
+Thresholds live under *Settings* in the Remotes tab. Everything in the package is pure and clock-agnostic;
 `make test` replays the hex and timestamps captured from the real remote.
 
 **Exclusive mode** (Settings, off by default) opens the remote with `kIOHIDOptionsTypeSeizeDevice` — the
 Phase 0 decision — so macOS stops changing the volume itself. Until bindings exist that just makes the
 media buttons dead, hence the default.
 
-What to verify: open the menu and press buttons — the row shows held buttons as chips and the last five
-gestures (`Back · Press`, `Select · Long press`, `Up · Double press`). Then turn on Exclusive mode and check
-the volume HUD no longer appears; turn it off and check it comes back without relaunching.
+What to verify: open the panel and press buttons — the key lights up on the drawn remote as it goes down
+(a tap is held lit for a moment so it stays visible), and the card beside it names the gesture and what it
+fired. Then turn on Exclusive mode and check the volume HUD no longer appears; turn it off and check it
+comes back without relaunching.
+
+The **Remotes** tab is laid out like the Bindings tab — same strip, same drawn remote, same cards — and
+shows only what is true now: last gesture and its action, connection and battery, exclusive/shared mode,
+counts, identity, and the global settings. The running history moved to **Activity Log…**, a separate
+window with every gesture, action, connection and (behind a checkbox) every raw HID report, plus the
+Apple HID devices the classifier skipped. Raw reports get their own budget in the ring buffer, so a
+touch-surface burst can never push the gesture history out.
 
 ## Phase 3 — bindings
 
-Menu → **Bindings…** (⌘B) opens the *Remote Bindings* window, built from the Claude Design mockup
-(`Remote Bindings.dc.html`): a drawn Siri Remote on the left is the button selector — click a button, or
-press it on the physical remote — and the right pane shows that button's three gestures (Press / Long
-press / Double press) as cards. Each card shows the assigned action as a keycap with its kind, an ×
-to clear, and an **Assign ▾** menu: *Record Keystroke…*, *Media Key ▸*, *Run Shortcut ▸*, *Open App ▸*,
-*Remove Binding*. Below the cards a *Hold until release* switch applies to the long-press binding. The
-toolbar carries the remote picker and an "N of 13 buttons bound" counter. Bindings are per remote, keyed
-by serial, and survive disconnects. `open TvRemoteControl.app --args --open-bindings` opens the window at
-launch (handy during development).
+The **Bindings** tab of the menu-bar panel is the editor, laid out from the Claude Design mockup
+(`Remote Bindings.dc.html`) at panel scale: a drawn Siri Remote on the left is the button selector —
+click a button, or press it on the physical remote — and the right column shows that button's three
+gestures (Press / Long press / Double press) as cards. Each card shows the assigned action as a keycap
+with its kind, an × to clear, and an **Assign ▾** menu: *Record Keystroke…*, *Media Key ▸*,
+*Run Shortcut ▸*, *Open App ▸*, *Remove Binding*. Below the cards a *Hold until release* switch applies
+to the long-press binding. A strip above carries the remote picker and an "N of 13 bound" counter.
+Bindings are per remote, keyed by serial, and survive disconnects.
+
+It used to be a separate 1060 × 720 window. `MenuBarExtra(.window)` hosts arbitrary SwiftUI — the only
+real constraint is width — so the editor moved into the panel (620 pt wide) and the window is gone; one
+click, no app switch. `open TvRemoteControl.app --args --preview-panel` renders the same panel in an
+ordinary window, which is handy while iterating on its layout (nothing else opens it).
 
 - **Keystroke** posts a key-down/up pair via `CGEvent` to the HID event tap with the recorded modifier
   flags (and the fn flag for arrows/F-keys, like real hardware).
@@ -152,7 +169,7 @@ launch (handy during development).
 - **Open App** launches the app by bundle identifier via `NSWorkspace`, or brings it to the front if it is
   already running. Pick from the currently running apps or choose any `.app`.
 
-**Accessibility** is required to post keystrokes and media keys; the menu and the editor show a banner
+**Accessibility** is required to post keystrokes and media keys; the panel shows a banner
 with the prompt and the Settings deep link while such a binding exists and the grant is missing.
 Shortcut and app bindings need no permission. Bindings are saved regardless.
 
