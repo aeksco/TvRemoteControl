@@ -20,6 +20,8 @@ import os
 final class HIDRemoteMonitor {
     private(set) var remotes: [RemoteDevice] = []
     private(set) var ignoredDevices: [IgnoredHIDDevice] = []
+    /// History behind the live panel: gestures, actions, connections, raw reports.
+    let activity = ActivityLog()
     private(set) var inputMonitoring: InputMonitoringStatus = .notDetermined
     private(set) var isRunning = false
     /// Number of sub-devices currently opened with `kIOHIDOptionsTypeSeizeDevice`.
@@ -195,8 +197,10 @@ final class HIDRemoteMonitor {
             handles[key] = handle
 
             var remote: RemoteDevice
+            var wasConnected = false
             if let index = remotes.firstIndex(where: { $0.id == id }) {
                 remote = remotes[index]
+                wasConnected = remote.isConnected
                 remote.update(from: info, generation: generation)
                 remotes.remove(at: index)
             } else {
@@ -213,6 +217,11 @@ final class HIDRemoteMonitor {
             }
             remote.isSeized = isSeized(remoteID: id)
             drivers[id]?.config = driverConfig(for: remote)
+            if !wasConnected {
+                activity.log(.device, remoteID: id, "\(remote.displayName) connected",
+                             detail: remote.openError.map { "can't read input — \($0)" } ?? remote.generation.displayName,
+                             isError: remote.openError != nil)
+            }
             remotes.insert(remote, at: 0)
             persist()
         }
@@ -239,7 +248,10 @@ final class HIDRemoteMonitor {
             remotes[index].isSeized = isSeized(remoteID: handle.remoteID)
             remotes[index].lastSeenAt = .now
             remotes[index].openError = nil
-            if !stillConnected { remotes[index].heldButtons = [] }
+            if !stillConnected {
+                remotes[index].heldButtons = []
+                activity.log(.device, remoteID: handle.remoteID, "\(remotes[index].displayName) disconnected")
+            }
         } else {
             remotes.remove(at: index)
             drivers[handle.remoteID] = nil
@@ -259,6 +271,7 @@ final class HIDRemoteMonitor {
             remotes[index].batteryPercent = battery
         }
         logger.debug("report \(handle.usagePage)/\(handle.usage) id=\(reportID) len=\(bytes.count): \(snapshot.hex, privacy: .public)")
+        activity.log(.report, remoteID: handle.remoteID, "\(snapshot.sourceLabel) · id \(reportID)", detail: snapshot.hex)
 
         guard handle.isButtonDevice, settings.isEnabled,
               let profile = profiles[handle.remoteID],
@@ -271,6 +284,8 @@ final class HIDRemoteMonitor {
         guard !events.isEmpty, let index = remotes.firstIndex(where: { $0.id == remoteID }) else { return }
         for event in events {
             logger.info("\(remoteID, privacy: .public): \(event.button.displayName, privacy: .public) \(event.gesture.displayName, privacy: .public)")
+            activity.log(.gesture, remoteID: remoteID, "\(event.button.displayName) · \(event.gesture.displayName)",
+                         detail: event.phase == .ended ? "released" : nil)
         }
         remotes[index].recentEvents = Array((events.reversed() + remotes[index].recentEvents).prefix(RemoteDevice.recentEventLimit))
         remotes[index].eventCount += events.count
@@ -285,33 +300,41 @@ final class HIDRemoteMonitor {
                 // Only a held long press cares about the release.
                 guard isHold, holds.isHolding(holdKey) else { continue }
                 holds.end(key: holdKey)
-                remotes[index].lastAction = ActionFeedback(button: event.button, gesture: event.gesture, summary: "released \(spec.displayString)")
+                setFeedback(&remotes[index], ActionFeedback(button: event.button, gesture: event.gesture, summary: "released \(spec.displayString)"))
                 continue
             }
             if case .mediaKey(let key) = spec, key == event.button.nativeMediaKey, !remotes[index].isSeized {
                 // macOS already acted on this button itself; replaying it would double-step the volume.
-                remotes[index].lastAction = ActionFeedback(button: event.button, gesture: event.gesture, summary: "\(spec.displayString) — handled by macOS (not seized)")
+                setFeedback(&remotes[index], ActionFeedback(button: event.button, gesture: event.gesture, summary: "\(spec.displayString) — handled by macOS (not seized)"))
                 continue
             }
             let failureHandler: ActionFailureHandler = { [weak self] message in
                 guard let self, let index = self.remotes.firstIndex(where: { $0.id == remoteID }) else { return }
-                self.remotes[index].lastAction = ActionFeedback(button: event.button, gesture: event.gesture, summary: spec.displayString, error: message)
+                self.setFeedback(&self.remotes[index], ActionFeedback(button: event.button, gesture: event.gesture, summary: spec.displayString, error: message))
                 self.logger.error("Action \(spec.displayString, privacy: .public) failed later: \(message, privacy: .public)")
             }
             do {
                 if isHold, let holdable = spec.makeAction() as? any HoldableAction {
                     try holds.begin(key: holdKey, action: holdable)
-                    remotes[index].lastAction = ActionFeedback(button: event.button, gesture: event.gesture, summary: "holding \(spec.displayString)")
+                    setFeedback(&remotes[index], ActionFeedback(button: event.button, gesture: event.gesture, summary: "holding \(spec.displayString)"))
                 } else {
                     try spec.makeAction(failureHandler: failureHandler).perform()
-                    remotes[index].lastAction = ActionFeedback(button: event.button, gesture: event.gesture, summary: spec.displayString)
+                    setFeedback(&remotes[index], ActionFeedback(button: event.button, gesture: event.gesture, summary: spec.displayString))
                 }
                 logger.info("Performed \(spec.displayString, privacy: .public) for \(event.button.displayName, privacy: .public) \(event.gesture.rawValue, privacy: .public)\(isHold ? " (hold)" : "", privacy: .public)")
             } catch {
-                remotes[index].lastAction = ActionFeedback(button: event.button, gesture: event.gesture, summary: spec.displayString, error: error.localizedDescription)
+                setFeedback(&remotes[index], ActionFeedback(button: event.button, gesture: event.gesture, summary: spec.displayString, error: error.localizedDescription))
                 logger.error("Action \(spec.displayString, privacy: .public) failed: \(error.localizedDescription, privacy: .public)")
             }
         }
+    }
+
+    /// One place to record what an action did, so the panel's last-action line and the log never disagree.
+    private func setFeedback(_ remote: inout RemoteDevice, _ feedback: ActionFeedback) {
+        remote.lastAction = feedback
+        var title = "\(feedback.button.displayName) \(feedback.gesture.displayName.lowercased()) → \(feedback.summary)"
+        if let error = feedback.error { title += " — \(error)" }
+        activity.log(.action, remoteID: remote.id, title, isError: feedback.error != nil)
     }
 
     // MARK: Opening / closing
