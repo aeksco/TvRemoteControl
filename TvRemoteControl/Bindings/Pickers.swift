@@ -90,6 +90,9 @@ struct AppChoice: Identifiable, Hashable {
         panel.canChooseDirectories = false
         panel.allowsMultipleSelection = false
         panel.directoryURL = URL(fileURLWithPath: "/Applications")
+        // The menu-bar panel is closing behind us; without activating, the open panel opens behind
+        // whatever app is frontmost.
+        NSApp.activate()
         panel.begin { response in
             guard response == .OK, let url = panel.url else { completion(nil); return }
             completion(AppChoice(url: url))
